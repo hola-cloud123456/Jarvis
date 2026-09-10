@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JARVIS · Núcleo de Interfaz</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Manrope:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --void:#04060c;
+    --void-2:#070c17;
+    --panel: rgba(12, 20, 36, .55);
+    --panel-solid:#0b1220;
+    --edge: rgba(56,189,248,.16);
+    --edge-strong: rgba(56,189,248,.4);
+    --signal:#38bdf8;
+    --signal-dim: rgba(56,189,248,.5);
+    --warm:#fb923c;
+    --text-hi:#e7f0fb;
+    --text-lo:#5c7086;
+    --text-mid:#93a5ba;
+    --user-bg:#111b2e;
+    --radius:10px;
+  }
+
+  *{box-sizing:border-box;margin:0;padding:0;}
+
+  html,body{height:100%;}
+
+  body{
+    font-family:'Manrope',sans-serif;
+    background:var(--void);
+    color:var(--text-hi);
+    height:100vh;
+    display:flex;
+    overflow:hidden;
+    position:relative;
+  }
+
+  /* ---------- Ambient backdrop ---------- */
+  .backdrop{
+    position:fixed; inset:0; z-index:0; pointer-events:none;
+    background:
+      radial-gradient(ellipse 900px 500px at 82% -10%, rgba(56,189,248,.10), transparent 60%),
+      radial-gradient(ellipse 700px 500px at 5% 110%, rgba(251,146,60,.05), transparent 60%),
+      linear-gradient(var(--void), var(--void-2));
+  }
+  .grid-layer{
+    position:fixed; inset:0; z-index:0; pointer-events:none; opacity:.35;
+    background-image:
+      linear-gradient(rgba(56,189,248,.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(56,189,248,.05) 1px, transparent 1px);
+    background-size: 42px 42px;
+    mask-image: radial-gradient(ellipse 90% 70% at 50% 20%, black, transparent 75%);
+  }
+  .scanline{
+    position:fixed; inset:0; z-index:1; pointer-events:none;
+    background:linear-gradient(rgba(56,189,248,0) 0%, rgba(56,189,248,.035) 50%, rgba(56,189,248,0) 100%);
+    height:140px; width:100%;
+    animation: scan 7s linear infinite;
+    opacity:.5;
+  }
+  @keyframes scan{
+    0%{ transform:translateY(-160px); }
+    100%{ transform:translateY(100vh); }
+  }
+
+  /* ---------- Sidebar ---------- */
+  .sidebar{
+    position:relative; z-index:2;
+    width:300px; min-width:300px;
+    background:var(--panel);
+    backdrop-filter: blur(14px);
+    border-right:1px solid var(--edge);
+    display:flex; flex-direction:column;
+    padding:22px 20px;
+  }
+
+  .brand{
+    display:flex; align-items:center; gap:14px;
+    padding-bottom:20px;
+    border-bottom:1px solid var(--edge);
+  }
+
+  .core-mini{
+    width:34px;height:34px;position:relative;flex-shrink:0;
+  }
+  .core-mini svg{width:100%;height:100%;display:block;}
+  .core-mini circle{fill:none;stroke:var(--signal);}
+  .ring-a{ stroke-width:1; opacity:.9; transform-origin:center; animation:spin 6s linear infinite; }
+  .ring-b{ stroke-width:1; opacity:.4; transform-origin:center; animation:spin 10s linear infinite reverse; }
+  .core-dot{ fill:var(--signal); filter:drop-shadow(0 0 4px var(--signal)); }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+
+  .brand-text h1{
+    font-family:'Space Grotesk',sans-serif;
+    font-size:1.02rem; font-weight:600; letter-spacing:.4px; color:#fff;
+  }
+  .brand-text .sub{
+    font-family:'JetBrains Mono',monospace;
+    font-size:.68rem; color:var(--text-lo); margin-top:2px;
+  }
+
+  .diagnostics{
+    margin-top:18px; display:flex; flex-direction:column; gap:10px;
+  }
+  .diag-row{ display:flex; flex-direction:column; gap:4px; }
+  .diag-label{
+    display:flex; justify-content:space-between;
+    font-family:'JetBrains Mono',monospace; font-size:.66rem;
+    color:var(--text-lo); letter-spacing:.3px;
+  }
+  .diag-label span:last-child{ color:var(--text-mid); }
+  .diag-bar{ height:3px; background:rgba(255,255,255,.06); border-radius:2px; overflow:hidden; }
+  .diag-fill{ height:100%; background:linear-gradient(90deg, var(--signal), var(--warm)); border-radius:2px; animation:pulseWidth 4s ease-in-out infinite; }
+  .diag-fill.b{ animation-delay:-1.3s; }
+  .diag-fill.c{ animation-delay:-2.6s; }
+  @keyframes pulseWidth{
+    0%,100%{ width:38%; } 50%{ width:74%; }
+  }
+
+  .agenda-section{ margin-top:26px; flex:1; overflow-y:auto; min-height:0; }
+  .agenda-section h2{
+    font-family:'JetBrains Mono',monospace;
+    font-size:.7rem; letter-spacing:1px; color:var(--signal);
+    margin-bottom:14px; display:flex; align-items:center; gap:8px;
+  }
+  .agenda-section h2::before{
+    content:''; width:6px;height:6px; background:var(--signal); border-radius:50%;
+    box-shadow:0 0 6px var(--signal);
+  }
+
+  .agenda-list{ display:flex; flex-direction:column; gap:8px; }
+
+  .event-card{
+    position:relative;
+    background:rgba(255,255,255,.02);
+    border:1px solid rgba(255,255,255,.06);
+    border-radius:var(--radius);
+    padding:10px 12px 10px 16px;
+    font-size:.82rem;
+    transition: border-color .2s ease, background .2s ease;
+  }
+  .event-card::before{
+    content:''; position:absolute; left:0; top:8px; bottom:8px; width:2px;
+    background:var(--signal); box-shadow:0 0 6px var(--signal-dim);
+  }
+  .event-card:hover{ border-color:var(--edge-strong); background:rgba(56,189,248,.04); }
+  .event-card .title{ font-weight:600; color:#fff; }
+  .event-card .date{ font-family:'JetBrains Mono',monospace; font-size:.68rem; color:var(--text-lo); margin-top:4px; }
+
+  /* ---------- Main ---------- */
+  .main-content{
+    position:relative; z-index:2;
+    flex:1; display:flex; flex-direction:column; height:100vh; min-width:0;
+  }
+
+  .chat-header{
+    padding:16px 26px;
+    border-bottom:1px solid var(--edge);
+    display:flex; justify-content:space-between; align-items:center;
+    background:rgba(4,6,12,.5);
+    backdrop-filter: blur(6px);
+  }
+
+  .header-status{ display:flex; align-items:center; gap:14px; }
+
+  .core-orb{ width:40px; height:40px; position:relative; flex-shrink:0; }
+  .core-orb svg{ width:100%; height:100%; overflow:visible; }
+  .orb-ring{ fill:none; stroke:var(--signal); transition:stroke .4s ease; }
+  .orb-ring.r1{ stroke-width:1.2; opacity:.9; transform-origin:50% 50%; animation:spin 5s linear infinite; }
+  .orb-ring.r2{ stroke-width:1; opacity:.35; transform-origin:50% 50%; animation:spin 9s linear infinite reverse; }
+  .orb-core{ fill:var(--signal); filter:drop-shadow(0 0 6px var(--signal)); transition:fill .4s ease; }
+  .core-orb.thinking .orb-ring{ animation-duration:1.4s; stroke:var(--warm); }
+  .core-orb.thinking .orb-core{ fill:var(--warm); filter:drop-shadow(0 0 8px var(--warm)); animation:corePulse .9s ease-in-out infinite; }
+  @keyframes corePulse{ 0%,100%{ transform:scale(1);} 50%{ transform:scale(1.35);} }
+
+  .status-text .label{ font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:.92rem; color:#fff; }
+  .status-text .line{ font-family:'JetBrains Mono',monospace; font-size:.7rem; color:var(--text-lo); margin-top:1px; }
+
+  .server-clock{
+    font-family:'JetBrains Mono',monospace; font-size:.82rem; color:var(--text-mid);
+    letter-spacing:1px;
+    border:1px solid var(--edge); border-radius:6px; padding:6px 12px;
+  }
+
+  .chat-container{
+    flex:1; padding:24px 26px; overflow-y:auto;
+    display:flex; flex-direction:column; gap:16px;
+  }
+  .chat-container::-webkit-scrollbar{ width:6px; }
+  .chat-container::-webkit-scrollbar-thumb{ background:rgba(56,189,248,.2); border-radius:4px; }
+
+  .message{
+    max-width:70%; padding:14px 18px; border-radius:var(--radius);
+    font-size:.94rem; line-height:1.55; white-space:pre-wrap; position:relative;
+    animation: rise .35s ease both;
+  }
+  @keyframes rise{ from{ opacity:0; transform:translateY(6px);} to{ opacity:1; transform:translateY(0);} }
+
+  .message.user{
+    align-self:flex-end; background:var(--user-bg);
+    border:1px solid rgba(255,255,255,.08); color:#fff;
+    border-bottom-right-radius:3px;
+  }
+  .message.jarvis{
+    align-self:flex-start; background:rgba(56,189,248,.05);
+    border:1px solid var(--edge); color:var(--text-hi);
+    border-bottom-left-radius:3px;
+    box-shadow:0 4px 20px rgba(0,0,0,.25);
+  }
+  .message .meta{
+    font-family:'JetBrains Mono',monospace; font-size:.66rem; color:var(--text-lo);
+    margin-top:8px; display:flex; gap:12px;
+  }
+
+  .cursor-blink{
+    display:inline-block; width:7px; height:1em; background:var(--signal);
+    vertical-align:text-bottom; margin-left:2px; animation:blink 1s step-start infinite;
+  }
+  @keyframes blink{ 50%{ opacity:0; } }
+
+  /* Waveform loading indicator */
+  .waveform{ display:flex; align-items:center; gap:3px; height:18px; padding:2px 0; }
+  .waveform span{
+    width:3px; background:var(--signal); border-radius:2px;
+    animation: wave 1s ease-in-out infinite;
+    box-shadow:0 0 4px var(--signal-dim);
+  }
+  .waveform span:nth-child(1){ height:6px; animation-delay:-.9s; }
+  .waveform span:nth-child(2){ height:14px; animation-delay:-.7s; }
+  .waveform span:nth-child(3){ height:8px; animation-delay:-.5s; }
+  .waveform span:nth-child(4){ height:16px; animation-delay:-.3s; }
+  .waveform span:nth-child(5){ height:9px; animation-delay:-.1s; }
+  @keyframes wave{ 0%,100%{ transform:scaleY(.4);} 50%{ transform:scaleY(1); } }
+
+  .quick-actions{
+    display:flex; gap:8px; padding:12px 26px;
+    background:rgba(0,0,0,.15); overflow-x:auto;
+    border-top:1px solid rgba(255,255,255,.04);
+  }
+  .quick-actions::-webkit-scrollbar{ height:0; }
+
+  .chip{
+    font-family:'JetBrains Mono',monospace;
+    background:rgba(255,255,255,.03); border:1px solid rgba(255,255,255,.09);
+    border-radius:20px; padding:7px 14px; font-size:.76rem;
+    cursor:pointer; white-space:nowrap; color:var(--text-mid);
+    transition:all .2s ease;
+  }
+  .chip:hover{ border-color:var(--signal); color:var(--signal); background:rgba(56,189,248,.06); }
+
+  .input-container{
+    padding:18px 26px; border-top:1px solid var(--edge);
+    background:var(--panel); backdrop-filter:blur(14px);
+    display:flex; gap:12px; align-items:center;
+  }
+
+  input[type="text"]{
+    flex:1; background:rgba(0,0,0,.35); border:1px solid var(--edge);
+    border-radius:8px; padding:14px 18px; color:#fff; font-size:.92rem;
+    font-family:'Manrope',sans-serif; outline:none; transition:border-color .2s ease, box-shadow .2s ease;
+  }
+  input[type="text"]::placeholder{ color:var(--text-lo); }
+  input[type="text"]:focus{ border-color:var(--signal); box-shadow:0 0 0 3px rgba(56,189,248,.12); }
+
+  button.send-btn{
+    background:linear-gradient(135deg, var(--signal), #1f6fb8);
+    border:none; border-radius:8px; padding:0 22px; height:48px;
+    color:#04121e; font-weight:700; font-family:'Space Grotesk',sans-serif;
+    cursor:pointer; transition:filter .2s ease, transform .1s ease;
+    letter-spacing:.3px;
+  }
+  button.send-btn:hover{ filter:brightness(1.12); }
+  button.send-btn:active{ transform:scale(.97); }
+
+  .sidebar-toggle{ display:none; }
+
+  @media (max-width: 860px){
+    .sidebar{
+      position:fixed; left:0; top:0; bottom:0; z-index:10;
+      transform:translateX(-100%); transition:transform .25s ease;
+      width:78vw; max-width:320px;
+    }
+    .sidebar.open{ transform:translateX(0); }
+    .sidebar-toggle{
+      display:flex; align-items:center; justify-content:center;
+      width:34px; height:34px; border:1px solid var(--edge); border-radius:8px;
+      background:rgba(255,255,255,.03); color:var(--signal); cursor:pointer; font-size:1rem;
+    }
+    .message{ max-width:88%; }
+    .chat-header{ padding:14px 16px; }
+    .chat-container{ padding:18px 16px; }
+    .quick-actions{ padding:10px 16px; }
+    .input-container{ padding:14px 16px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="backdrop"></div>
+<div class="grid-layer"></div>
+<div class="scanline"></div>
+
+<div class="sidebar" id="sidebar">
+  <div class="brand">
+    <div class="core-mini">
+      <svg viewBox="0 0 40 40">
+        <circle class="ring-a" cx="20" cy="20" r="17" stroke-dasharray="4 6"/>
+        <circle class="ring-b" cx="20" cy="20" r="12"/>
+        <circle class="core-dot" cx="20" cy="20" r="3.2"/>
+      </svg>
+    </div>
+    <div class="brand-text">
+      <h1>JARVIS</h1>
+      <div class="sub">NÚCLEO v5.3 · ENLACE ACTIVO</div>
+    </div>
+  </div>
+
+  <div class="diagnostics">
+    <div class="diag-row">
+      <div class="diag-label"><span>NÚCLEO</span><span>ESTABLE</span></div>
+      <div class="diag-bar"><div class="diag-fill a"></div></div>
+    </div>
+    <div class="diag-row">
+      <div class="diag-label"><span>MEMORIA</span><span>SINCRONIZADA</span></div>
+      <div class="diag-bar"><div class="diag-fill b"></div></div>
+    </div>
+    <div class="diag-row">
+      <div class="diag-label"><span>ENLACE</span><span>ONLINE</span></div>
+      <div class="diag-bar"><div class="diag-fill c"></div></div>
+    </div>
+  </div>
+
+  <div class="agenda-section">
+    <h2>Agenda</h2>
+    <div class="agenda-list" id="agendaList">
+      <div class="event-card">
+        <div class="title">Cargando compromisos…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="main-content">
+  <div class="chat-header">
+    <div class="header-status">
+      <button class="sidebar-toggle" onclick="toggleSidebar()">☰</button>
+      <div class="core-orb" id="coreOrb">
+        <svg viewBox="0 0 40 40">
+          <circle class="orb-ring r1" cx="20" cy="20" r="17" stroke-dasharray="4 6"/>
+          <circle class="orb-ring r2" cx="20" cy="20" r="12"/>
+          <circle class="orb-core" cx="20" cy="20" r="3.4"/>
+        </svg>
+      </div>
+      <div class="status-text">
+        <div class="label">Mateo · Sesión activa</div>
+        <div class="line" id="statusLine">servidor en línea · esperando comando</div>
+      </div>
+    </div>
+    <div class="server-clock" id="serverTime">--:--:--</div>
+  </div>
+
+  <div class="chat-container" id="chatContainer">
+    <div class="message jarvis">
+      A su servicio, Mateo. He cargado su perfil y sincronizado su agenda en memoria interna. ¿En qué trabajaremos hoy?
+    </div>
+  </div>
+
+  <div class="quick-actions">
+    <div class="chip" onclick="sendQuick('Jarvis, ¿qué tengo agendado hoy en mi calendario interno?')">◆ Consultar agenda</div>
+    <div class="chip" onclick="sendQuick('Jarvis, dame un resumen estratégico de mis objetivos prioritarios.')">◆ Objetivos</div>
+    <div class="chip" onclick="sendQuick('Jarvis, ¿qué fecha y hora tiene el servidor?')">◆ Hora del servidor</div>
+  </div>
+
+  <div class="input-container">
+    <input type="text" id="userInput" placeholder="Escribe tu comando o consulta para Jarvis…" onkeypress="handleKeyPress(event)">
+    <button class="send-btn" onclick="sendMessage()">Enviar</button>
+  </div>
+</div>
+
+<script>
+  const API_URL = 'https://jarvis-o4pq.onrender.com/chat';
+  const coreOrb = document.getElementById('coreOrb');
+  const statusLine = document.getElementById('statusLine');
+
+  function toggleSidebar(){
+    document.getElementById('sidebar').classList.toggle('open');
+  }
+
+  function setThinking(on){
+    coreOrb.classList.toggle('thinking', on);
+    statusLine.textContent = on ? 'procesando solicitud…' : 'servidor en línea · esperando comando';
+  }
+
+  async function sendMessage(overrideText = null){
+    const inputEl = document.getElementById('userInput');
+    const message = overrideText || inputEl.value.trim();
+    if (!message) return;
+    if (!overrideText) inputEl.value = '';
+
+    appendMessage(message, 'user');
+    setThinking(true);
+    const loadingId = appendLoading();
+
+    try{
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message })
+      });
+      const data = await res.json();
+      removeMessage(loadingId);
+      setThinking(false);
+
+      if (data.response){
+        appendTypedMessage(data.response, data.model_used, data.agentic_action);
+        refreshAgenda();
+      } else {
+        appendMessage('❌ Error: ' + (data.error || 'Respuesta no válida del servidor.'), 'jarvis');
+      }
+    } catch(err){
+      removeMessage(loadingId);
+      setThinking(false);
+      appendMessage('❌ Error de conexión con el servidor de Jarvis.', 'jarvis');
+    }
+  }
+
+  function sendQuick(text){ sendMessage(text); }
+
+  function handleKeyPress(e){ if (e.key === 'Enter') sendMessage(); }
+
+  function appendMessage(text, sender, model = null, agentic = false){
+    const chat = document.getElementById('chatContainer');
+    const msgDiv = document.createElement('div');
+    msgDiv.className = `message ${sender}`;
+    msgDiv.innerText = text;
+
+    if (sender === 'jarvis' && model){
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      meta.innerHTML = `<span>Modelo: ${model}</span> ${agentic ? '<span>· Acción agéntica ejecutada</span>' : ''}`;
+      msgDiv.appendChild(meta);
+    }
+
+    chat.appendChild(msgDiv);
+    chat.scrollTop = chat.scrollHeight;
+    return msgDiv;
+  }
+
+  function appendTypedMessage(text, model = null, agentic = false){
+    const chat = document.getElementById('chatContainer');
+    const msgDiv = document.createElement('div');
+    msgDiv.className = 'message jarvis';
+    const textSpan = document.createElement('span');
+    const cursor = document.createElement('span');
+    cursor.className = 'cursor-blink';
+    msgDiv.appendChild(textSpan);
+    msgDiv.appendChild(cursor);
+    chat.appendChild(msgDiv);
+    chat.scrollTop = chat.scrollHeight;
+
+    let i = 0;
+    const speed = Math.max(6, Math.min(18, 900 / text.length));
+    const interval = setInterval(() => {
+      textSpan.textContent += text[i];
+      i++;
+      chat.scrollTop = chat.scrollHeight;
+      if (i >= text.length){
+        clearInterval(interval);
+        cursor.remove();
+        if (model){
+          const meta = document.createElement('div');
+          meta.className = 'meta';
+          meta.innerHTML = `<span>Modelo: ${model}</span> ${agentic ? '<span>· Acción agéntica ejecutada</span>' : ''}`;
+          msgDiv.appendChild(meta);
+        }
+      }
+    }, speed);
+  }
+
+  function appendLoading(){
+    const chat = document.getElementById('chatContainer');
+    const loadDiv = document.createElement('div');
+    loadDiv.className = 'message jarvis';
+    loadDiv.id = 'loading-' + Date.now();
+    loadDiv.innerHTML = '<div class="waveform"><span></span><span></span><span></span><span></span><span></span></div>';
+    chat.appendChild(loadDiv);
+    chat.scrollTop = chat.scrollHeight;
+    return loadDiv.id;
+  }
+
+  function removeMessage(id){
+    const el = document.getElementById(id);
+    if (el) el.remove();
+  }
+
+  async function refreshAgenda(){
+    try{
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: "Jarvis, lista los eventos de mi calendario interno brevemente en formato JSON o texto." })
+      });
+      const data = await res.json();
+      const list = document.getElementById('agendaList');
+      if (data.response){
+        list.innerHTML = `<div class="event-card"><div class="title">Estado de la agenda</div><div class="date">${data.response.substring(0, 180)}…</div></div>`;
+      }
+    } catch(e){
+      console.log("Error cargando agenda sidebar:", e);
+    }
+  }
+
+  setInterval(() => {
+    document.getElementById('serverTime').innerText = new Date().toLocaleTimeString();
+  }, 1000);
+
+  window.onload = refreshAgenda;
+</script>
+</body>
+</html>
