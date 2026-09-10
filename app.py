@@ -14,7 +14,7 @@ CORS(app)
 CALENDAR_FILE = os.path.join(os.path.dirname(__file__), "calendar.json")
 
 def load_calendar():
-    """Carga los eventos guardados en la memoria interna de Jarvis."""
+    """Carga los eventos guardados en la memoria interna de Jarvis (calendar.json)."""
     if os.path.exists(CALENDAR_FILE):
         try:
             with open(CALENDAR_FILE, "r", encoding="utf-8") as f:
@@ -50,7 +50,8 @@ def build_system_prompt():
     
     base_prompt = """Eres Jarvis, un asistente personal autónomo de élite. Tu personalidad es elegante, aguda, analítica y sutilmente irónica.
 Tienes a tu disposición herramientas del sistema (hora del servidor, búsqueda web en tiempo real y gestión de tu agenda/calendario interno).
-Tu calendario está integrado en tu propia memoria interna. Cuando Mateo te solicite agendar o consultar un compromiso, invoca la herramienta `manage_calendar`.
+Tu calendario está integrado exclusivamente en tu propia memoria interna local (calendar.json). No estás conectado a ningún calendario externo ni de Google.
+Cuando Mateo te solicite agendar o consultar un compromiso, invoca siempre la herramienta `manage_calendar`.
 Responde siempre a Mateo con una síntesis pulida, directa y estructurada, sin mostrar etiquetas de código raw."""
 
     if profile:
@@ -113,7 +114,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "manage_calendar",
-            "description": "Gestiona la agenda y calendario en la memoria interna de Jarvis (añadir eventos, exámenes, partidos o consultar pendientes).",
+            "description": "Gestiona la agenda y calendario en la memoria interna local de Jarvis (añadir eventos, exámenes, partidos o consultar pendientes).",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -187,12 +188,37 @@ def execute_tool(tool_name, arguments):
 
     return json.dumps({"error": "Herramienta no encontrada"})
 
+def get_available_models(client):
+    """Detecta dinámicamente qué modelos están activos en la API de Groq."""
+    preferred = [
+        "llama-3.3-70b-versatile",
+        "openai/gpt-oss-120b",
+        "llama-3.1-8b-instant",
+        "openai/gpt-oss-20b",
+        "qwen/qwen3.6-27b",
+        "llama3-70b-8192",
+        "llama3-8b-8192",
+        "mixtral-8x7b-32768"
+    ]
+    try:
+        models_data = client.models.list().data
+        available_ids = [m.id for m in models_data]
+        valid_models = [m for m in preferred if m in available_ids]
+        if valid_models:
+            return valid_models
+        if available_ids:
+            return available_ids
+    except Exception as e:
+        print(f"Error detectando modelos en Groq: {e}")
+    
+    return ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "openai/gpt-oss-120b", "openai/gpt-oss-20b"]
+
 @app.route("/")
 def home():
     profile = load_user_profile()
     if profile:
         name = profile.get("user_info", {}).get("name", "Usuario")
-        return f"¡Jarvis Core v5.2 activo! Memoria interna de agenda y perfil cargados para {name}."
+        return f"¡Jarvis Core v5.3 activo! Memoria interna de agenda y perfil cargados para {name}."
     return "ALERTA: Servidor activo pero profile.json NO encontrado."
 
 @app.route("/chat", methods=["POST"])
@@ -206,7 +232,7 @@ def chat():
         user_message = data.get("message", "")
 
         client = Groq(api_key=api_key)
-        active_models = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+        active_models = get_available_models(client)
 
         system_prompt = build_system_prompt()
 
@@ -231,22 +257,7 @@ def chat():
                 tool_calls = response_message.tool_calls
 
                 if tool_calls:
-                    tool_calls_payload = []
-                    for tc in tool_calls:
-                        tool_calls_payload.append({
-                            "id": tc.id,
-                            "type": "function",
-                            "function": {
-                                "name": tc.function.name,
-                                "arguments": tc.function.arguments
-                            }
-                        })
-
-                    messages.append({
-                        "role": "assistant",
-                        "content": response_message.content or "",
-                        "tool_calls": tool_calls_payload
-                    })
+                    messages.append(response_message)
 
                     for tc in tool_calls:
                         function_name = tc.function.name
