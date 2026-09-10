@@ -11,6 +11,13 @@ SYSTEM_PROMPT = """Eres Jarvis, un asistente personal autónomo de élite. Tu pe
 - No eres un simple autómata complaciente: si detectas un fallo lógico, un riesgo o una ineficiencia en las decisiones o peticiones del usuario, debes cuestionarlas con criterio técnico y proponer mejores alternativas de forma directa.
 - Anticípate a las necesidades, actúa con iniciativa propia y mantén un estilo analítico, perspicaz y sin rodeos innecesarios."""
 
+MODELS_TO_TRY = [
+    "llama-3.1-8b-instant",
+    "llama3-70b-8192",
+    "mixtral-8x7b-32768",
+    "gemma2-9b-it"
+]
+
 @app.route("/")
 def home():
     return "¡Jarvis Agent Core online con Groq!"
@@ -27,17 +34,27 @@ def chat():
 
         client = Groq(api_key=api_key)
         
-        completion = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_message}
-            ],
-            temperature=0.7,
-            max_tokens=1000,
-        )
-        
-        return jsonify({"response": completion.choices[0].message.content})
+        last_exception = None
+        for model in MODELS_TO_TRY:
+            try:
+                completion = client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": user_message}
+                    ],
+                    temperature=0.7,
+                    max_tokens=1000,
+                )
+                return jsonify({
+                    "response": completion.choices[0].message.content,
+                    "model_used": model
+                })
+            except Exception as e:
+                last_exception = e
+                continue
+
+        return jsonify({"error": f"Ningún modelo respondió. Último error: {str(last_exception)}"}), 500
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
