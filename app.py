@@ -13,7 +13,7 @@ SYSTEM_PROMPT = """Eres Jarvis, un asistente personal autónomo de élite. Tu pe
 
 @app.route("/")
 def home():
-    return "¡Jarvis Agent Core online con Groq (Llama 3.3)!"
+    return "¡Jarvis Agent Core online con Groq!"
 
 @app.route("/chat", methods=["POST"])
 def chat():
@@ -21,7 +21,7 @@ def chat():
     client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
     
     completion = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model="llama-3.1-70b-versatile",
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_message}
