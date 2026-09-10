@@ -5,9 +5,31 @@ from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from groq import Groq
+from duckduckgo_search import DDGS
 
 app = Flask(__name__)
 CORS(app)
+
+CALENDAR_FILE = os.path.join(os.path.dirname(__file__), "calendar.json")
+
+def load_calendar():
+    """Carga los eventos guardados en el calendario."""
+    if os.path.exists(CALENDAR_FILE):
+        try:
+            with open(CALENDAR_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return []
+    return []
+
+def save_calendar(events):
+    """Guarda los eventos en el archivo calendar.json."""
+    try:
+        with open(CALENDAR_FILE, "w", encoding="utf-8") as f:
+            json.dump(events, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception:
+        return False
 
 def load_user_profile():
     """Carga el perfil de usuario y contexto desde profile.json."""
@@ -16,8 +38,7 @@ def load_user_profile():
         try:
             with open(profile_path, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except Exception as e:
-            print(f"Error al leer profile.json: {e}")
+        except Exception:
             pass
     return {}
 
@@ -26,7 +47,8 @@ def build_system_prompt():
     profile = load_user_profile()
     
     base_prompt = """Eres Jarvis, un asistente personal autónomo de élite. Tu personalidad es elegante, aguda, analítica y sutilmente irónica.
-Tienes a tu disposición herramientas del sistema. Si necesitas ejecutar una acción interna o consultar el estado, usa tus herramientas antes de responder."""
+Tienes a tu disposición herramientas del sistema (hora del servidor, búsqueda web en tiempo real y gestión de calendario/agenda).
+Usa tus herramientas de manera autónoma cuando el usuario te pida consultar datos externos, buscar información o gestionar sus tareas e hitos."""
 
     if profile:
         user_info = profile.get("user_info", {})
@@ -58,6 +80,7 @@ Tienes a tu disposición herramientas del sistema. Si necesitas ejecutar una acc
     base_prompt += "\n\nAplica todo este contexto en tus respuestas y decisiones de forma directa e implícita."
     return base_prompt
 
+# Definición de herramientas (Tools) del Agente
 TOOLS = [
     {
         "type": "function",
@@ -65,6 +88,54 @@ TOOLS = [
             "name": "get_system_time",
             "description": "Obtiene la fecha y hora exacta actual del sistema del servidor.",
             "parameters": {"type": "object", "properties": {}, "required": []}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_search",
+            "description": "Realiza una búsqueda en la web en tiempo real para obtener información actualizada sobre cualquier tema.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Consulta o términos de búsqueda precisos."
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "manage_calendar",
+            "description": "Gestiona la agenda y calendario de Mateo (añadir eventos, exámenes, partidos o consultar pendientes).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["add", "list"],
+                        "description": "'add' para agendar un evento/hito, 'list' para consultar la agenda."
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Título del evento, examen, entrenamiento, partido o reunión."
+                    },
+                    "date": {
+                        "type": "string",
+                        "description": "Fecha y/o hora asignada al evento (ejemplo: '2026-09-15 17:00')."
+                    },
+                    "category": {
+                        "type": "string",
+                        "enum": ["Academico", "Baloncesto", "Negocio", "Personal"],
+                        "description": "Categoría a la que pertenece el evento."
+                    }
+                },
+                "required": ["action"]
+            }
         }
     }
 ]
@@ -76,20 +147,51 @@ def clean_thought_tags(text):
     return re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
 
 def execute_tool(tool_name, arguments):
-    """Ejecuta las funciones locales del servidor."""
+    """Ejecuta la lógica local según la función llamada por la IA."""
     if tool_name == "get_system_time":
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         return json.dumps({"current_time": now})
+
+    elif tool_name == "web_search":
+        query = arguments.get("query", "")
+        try:
+            results = list(DDGS().text(query, max_results=5))
+            return json.dumps({"query": query, "results": results})
+        except Exception as e:
+            return json.dumps({"error": f"Error en búsqueda web: {str(e)}"})
+
+    elif tool_name == "manage_calendar":
+        action = arguments.get("action")
+        events = load_calendar()
+
+        if action == "add":
+            title = arguments.get("title", "Sin título")
+            date = arguments.get("date", datetime.now().strftime("%Y-%m-%d"))
+            category = arguments.get("category", "Personal")
+            
+            new_event = {
+                "id": len(events) + 1,
+                "title": title,
+                "date": date,
+                "category": category,
+                "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            events.append(new_event)
+            save_calendar(events)
+            return json.dumps({"status": "Evento agendado correctamente", "event": new_event})
+
+        elif action == "list":
+            return json.dumps({"status": "OK", "total_events": len(events), "events": events})
+
     return json.dumps({"error": "Herramienta no encontrada"})
 
 @app.route("/")
 def home():
-    """Ruta de diagnóstico para verificar que Render detecta profile.json."""
     profile = load_user_profile()
     if profile:
         name = profile.get("user_info", {}).get("name", "Usuario")
-        return f"¡Jarvis Core activo! Perfil cargado con éxito para {name}."
-    return "ALERTA: Servidor activo pero profile.json NO encontrado o con errores de formato."
+        return f"¡Jarvis Core activo! Perfil cargado para {name}. Módulos: Búsqueda Web + Calendario integrados."
+    return "ALERTA: Servidor activo pero profile.json NO encontrado."
 
 @app.route("/chat", methods=["POST"])
 def chat():
