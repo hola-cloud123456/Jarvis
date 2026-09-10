@@ -264,12 +264,47 @@
   input[type="text"]::placeholder{ color:var(--text-lo); }
   input[type="text"]:focus{ border-color:var(--signal); box-shadow:0 0 0 3px rgba(56,189,248,.12); }
 
+  /* Estilos del Micrófono HUD */
+  .mic-btn {
+    background: rgba(56, 189, 248, 0.1);
+    border: 1px solid var(--edge);
+    color: var(--signal);
+    border-radius: 8px;
+    width: 48px;
+    height: 48px;
+    cursor: pointer;
+    font-size: 1.2rem;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .mic-btn:hover {
+    border-color: var(--signal);
+    background: rgba(56, 189, 248, 0.2);
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.2);
+  }
+
+  .mic-btn.recording {
+    background: rgba(251, 146, 60, 0.2);
+    border-color: var(--warm);
+    color: var(--warm);
+    animation: pulse-mic 1s infinite alternate;
+  }
+
+  @keyframes pulse-mic {
+    from { box-shadow: 0 0 4px var(--warm); }
+    to { box-shadow: 0 0 16px var(--warm); }
+  }
+
   button.send-btn{
     background:linear-gradient(135deg, var(--signal), #1f6fb8);
     border:none; border-radius:8px; padding:0 22px; height:48px;
     color:#04121e; font-weight:700; font-family:'Space Grotesk',sans-serif;
     cursor:pointer; transition:filter .2s ease, transform .1s ease;
-    letter-spacing:.3px;
+    letter-spacing:.3px; flex-shrink:0;
   }
   button.send-btn:hover{ filter:brightness(1.12); }
   button.send-btn:active{ transform:scale(.97); }
@@ -292,7 +327,7 @@
     .chat-header{ padding:14px 16px; }
     .chat-container{ padding:18px 16px; }
     .quick-actions{ padding:10px 16px; }
-    .input-container{ padding:14px 16px; }
+    .input-container{ padding:14px 16px; gap:8px; }
   }
 </style>
 </head>
@@ -374,7 +409,8 @@
   </div>
 
   <div class="input-container">
-    <input type="text" id="userInput" placeholder="Escribe tu comando o consulta para Jarvis…" onkeypress="handleKeyPress(event)">
+    <button id="micBtn" class="mic-btn" onclick="toggleVoiceInput()" title="Hablar con JARVIS">🎙️</button>
+    <input type="text" id="userInput" placeholder="Escribe tu comando o habla con Jarvis…" onkeydown="handleKeyPress(event)">
     <button class="send-btn" onclick="sendMessage()">Enviar</button>
   </div>
 </div>
@@ -469,6 +505,10 @@
       if (i >= text.length){
         clearInterval(interval);
         cursor.remove();
+        
+        // ¡ACTIVA LA VOZ GRAVE DE JARVIS!
+        speakJarvis(text);
+
         if (model){
           const meta = document.createElement('div');
           meta.className = 'meta';
@@ -512,6 +552,117 @@
     }
   }
 
+  // ==================== 1. SONIDO CIBERNÉTICO BEEP ====================
+  function playSciFiChime() {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(880, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(1760, ctx.currentTime + 0.08);
+
+      gain.gain.setValueAtTime(0.04, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.12);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start();
+      osc.stop(ctx.currentTime + 0.12);
+    } catch (e) {
+      console.log("Audio omitido por interacción.");
+    }
+  }
+
+  // ==================== 2. VOZ GRAVE DE JARVIS (TTS) ====================
+  function speakJarvis(text) {
+    if (!('speechSynthesis' in window)) return;
+
+    window.speechSynthesis.cancel();
+    playSciFiChime();
+
+    const cleanText = text.replace(/[*_#`~-]/g, '').trim();
+
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.lang = 'es-ES';
+    utterance.pitch = 0.75; // Tono grave futurista
+    utterance.rate = 1.08;  // Velocidad ágil
+    utterance.volume = 1.0;
+
+    const voices = window.speechSynthesis.getVoices();
+    const jarvisVoice = voices.find(v => 
+      v.lang.includes('es') && (
+        v.name.includes('Raul') || 
+        v.name.includes('Pablo') || 
+        v.name.includes('Jorge') || 
+        v.name.includes('Google español') ||
+        v.name.includes('Male')
+      )
+    ) || voices.find(v => v.lang.includes('es'));
+
+    if (jarvisVoice) utterance.voice = jarvisVoice;
+
+    window.speechSynthesis.speak(utterance);
+  }
+
+  if ('speechSynthesis' in window) {
+    window.speechSynthesis.onvoiceschanged = () => {
+      window.speechSynthesis.getVoices();
+    };
+  }
+
+  // ==================== 3. RECONOCIMIENTO DE VOZ (STT) ====================
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let recognition = null;
+  let isRecording = false;
+
+  if (SpeechRecognition) {
+    recognition = new SpeechRecognition();
+    recognition.lang = 'es-ES';
+    recognition.continuous = false;
+    recognition.interimResults = false;
+
+    recognition.onstart = () => {
+      isRecording = true;
+      const micBtn = document.getElementById('micBtn');
+      if (micBtn) micBtn.classList.add('recording');
+      statusLine.textContent = 'escuchando orden de voz…';
+    };
+
+    recognition.onresult = (event) => {
+      const transcript = event.results[0][0].transcript;
+      document.getElementById('userInput').value = transcript;
+      sendMessage();
+    };
+
+    recognition.onerror = () => { stopRecording(); };
+    recognition.onend = () => { stopRecording(); };
+  }
+
+  function toggleVoiceInput() {
+    if (!recognition) {
+      alert('El reconocimiento de voz no está soportado en este navegador. Usa Google Chrome o Edge.');
+      return;
+    }
+    if (isRecording) {
+      recognition.stop();
+    } else {
+      recognition.start();
+    }
+  }
+
+  function stopRecording() {
+    isRecording = false;
+    const micBtn = document.getElementById('micBtn');
+    if (micBtn) micBtn.classList.remove('recording');
+    statusLine.textContent = 'servidor en línea · esperando comando';
+  }
+
+  // Reloj
   setInterval(() => {
     document.getElementById('serverTime').innerText = new Date().toLocaleTimeString();
   }, 1000);
