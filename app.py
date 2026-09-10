@@ -1,6 +1,6 @@
 import os
 import json
-import re  # <--- Importar re
+import re
 from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -9,9 +9,44 @@ from groq import Groq
 app = Flask(__name__)
 CORS(app)
 
-SYSTEM_PROMPT = """Eres Jarvis, un asistente personal autónomo de élite. Tu personalidad es elegante, aguda, analítica y sutilmente irónica.
-Tienes a tu disposición herramientas del sistema. Si necesitas saber la fecha/hora o ejecutar una acción interna, usa tus herramientas antes de dar una respuesta final.
-- Mantén un estilo directo, técnico y perspicaz."""
+def load_user_profile():
+    """Carga el perfil de usuario y contexto de negocio desde profile.json."""
+    profile_path = os.path.join(os.path.dirname(__file__), "profile.json")
+    if os.path.exists(profile_path):
+        try:
+            with open(profile_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+def build_system_prompt():
+    """Construye el Prompt del Sistema inyectando el perfil del negocio."""
+    profile = load_user_profile()
+    
+    base_prompt = """Eres Jarvis, un asistente personal autónomo de élite. Tu personalidad es elegante, aguda, analítica y sutilmente irónica.
+Tienes a tu disposición herramientas del sistema. Si necesitas ejecutar una acción interna o consultar el estado, usa tus herramientas antes de responder."""
+
+    if profile:
+        base_prompt += f"\n\n--- CONTEXTO DEL USUARIO Y NEGOCIO ---"
+        base_prompt += f"\n- Usuario: {profile.get('user_name', 'Usuario')}"
+        base_prompt += f"\n- Rol: {profile.get('role', 'No especificado')}"
+        base_prompt += f"\n- Resumen del negocio/actividad: {profile.get('business_summary', 'No especificado')}"
+        
+        projects = profile.get("active_projects", [])
+        if projects:
+            base_prompt += "\n- Proyectos Activos:"
+            for p in projects:
+                base_prompt += f"\n  * {p.get('name')}: {p.get('status')} | Objetivo: {p.get('goal')}"
+                
+        principles = profile.get("operating_principles", [])
+        if principles:
+            base_prompt += "\n- Reglas de Operación Técnicas:"
+            for rule in principles:
+                base_prompt += f"\n  * {rule}"
+
+    base_prompt += "\n\nAplica este contexto en todas tus decisiones y sugerencias de forma implícita."
+    return base_prompt
 
 TOOLS = [
     {
@@ -25,7 +60,6 @@ TOOLS = [
 ]
 
 def clean_thought_tags(text):
-    """Elimina etiquetas de pensamiento interno <think>...</think> de los modelos."""
     return re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
 
 def execute_tool(tool_name, arguments):
@@ -36,7 +70,7 @@ def execute_tool(tool_name, arguments):
 
 @app.route("/")
 def home():
-    return "¡Jarvis Agent Harness v1.0 online!"
+    return "¡Jarvis Agent Core v4.0 con Perfil de Negocio Activo!"
 
 @app.route("/chat", methods=["POST"])
 def chat():
@@ -59,8 +93,11 @@ def chat():
         except Exception:
             active_models = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
 
+        # Generar prompt dinámico con los datos de profile.json
+        system_prompt = build_system_prompt()
+
         messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message}
         ]
 
