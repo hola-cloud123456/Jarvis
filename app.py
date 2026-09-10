@@ -17,20 +17,30 @@ def home():
 
 @app.route("/chat", methods=["POST"])
 def chat():
-    user_message = request.json.get("message", "")
-    client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
-    
-    completion = client.chat.completions.create(
-        model="llama-3.1-70b-versatile",
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_message}
-        ],
-        temperature=0.7,
-        max_tokens=1000,
-    )
-    
-    return jsonify({"response": completion.choices[0].message.content})
+    try:
+        api_key = os.environ.get("GROQ_API_KEY")
+        if not api_key:
+            return jsonify({"error": "GROQ_API_KEY no está configurada en las variables de entorno de Render."}), 400
+
+        data = request.get_json(force=True, silent=True) or {}
+        user_message = data.get("message", "")
+
+        client = Groq(api_key=api_key)
+        
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_message}
+            ],
+            temperature=0.7,
+            max_tokens=1000,
+        )
+        
+        return jsonify({"response": completion.choices[0].message.content})
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
