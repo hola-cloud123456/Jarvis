@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import traceback
 from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -13,20 +14,24 @@ CORS(app)
 CALENDAR_FILE = os.path.join(os.path.dirname(__file__), "calendar.json")
 
 def load_calendar():
+    """Carga los eventos guardados en la memoria interna de Jarvis."""
     if os.path.exists(CALENDAR_FILE):
         try:
             with open(CALENDAR_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except Exception:
+        except Exception as e:
+            print(f"Error leyendo calendar.json: {e}")
             return []
     return []
 
 def save_calendar(events):
+    """Guarda los eventos en la memoria interna de Jarvis (calendar.json)."""
     try:
         with open(CALENDAR_FILE, "w", encoding="utf-8") as f:
             json.dump(events, f, ensure_ascii=False, indent=2)
         return True
-    except Exception:
+    except Exception as e:
+        print(f"Error guardando calendar.json: {e}")
         return False
 
 def load_user_profile():
@@ -35,7 +40,8 @@ def load_user_profile():
         try:
             with open(profile_path, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except Exception:
+        except Exception as e:
+            print(f"Error leyendo profile.json: {e}")
             pass
     return {}
 
@@ -43,9 +49,9 @@ def build_system_prompt():
     profile = load_user_profile()
     
     base_prompt = """Eres Jarvis, un asistente personal autónomo de élite. Tu personalidad es elegante, aguda, analítica y sutilmente irónica.
-Tienes a tu disposición herramientas del sistema (hora del servidor, búsqueda web en tiempo real y gestión de calendario/agenda).
-Cuando necesites datos actualizados o modificar/consultar la agenda, DEBES invocar la herramienta correspondiente.
-Una vez recibidos los resultados de una herramienta, responde a Mateo con una síntesis clara, pulida y directa, NUNCA mostrando etiquetas internas de código o XML."""
+Tienes a tu disposición herramientas del sistema (hora del servidor, búsqueda web en tiempo real y gestión de tu agenda/calendario interno).
+Tu calendario está integrado en tu propia memoria interna. Cuando Mateo te solicite agendar o consultar un compromiso, invoca la herramienta `manage_calendar`.
+Responde siempre a Mateo con una síntesis pulida, directa y estructurada, sin mostrar etiquetas de código raw."""
 
     if profile:
         user_info = profile.get("user_info", {})
@@ -74,7 +80,7 @@ Una vez recibidos los resultados de una herramienta, responde a Mateo con una s�
             for rule in principles:
                 base_prompt += f"\n  * {rule}"
 
-    base_prompt += "\n\nAplica todo este contexto en tus respuestas y decisiones de forma directa e implícita."
+    base_prompt += "\n\nAplica todo este contexto en tus respuestas de forma natural e implícita."
     return base_prompt
 
 TOOLS = [
@@ -107,7 +113,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "manage_calendar",
-            "description": "Gestiona la agenda y calendario de Mateo (añadir eventos, exámenes, partidos o consultar pendientes).",
+            "description": "Gestiona la agenda y calendario en la memoria interna de Jarvis (añadir eventos, exámenes, partidos o consultar pendientes).",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -143,32 +149,6 @@ def clean_thought_tags(text):
     text = re.sub(r'<tool_call>.*?</tool_call>', '', text, flags=re.DOTALL)
     return text.strip()
 
-def parse_raw_tool_calls(text):
-    if not text or "<tool_call>" not in text:
-        return []
-    
-    extracted = []
-    matches = re.findall(r'<tool_call>(.*?)</tool_call>', text, re.DOTALL)
-    for match in matches:
-        func_match = re.search(r'<function=(.*?)>', match)
-        if func_match:
-            func_name = func_match.group(1).strip()
-            params = {}
-            param_matches = re.findall(r'<parameter=(.*?)>(.*?)</parameter>', match, re.DOTALL)
-            for key, val in param_matches:
-                params[key.strip()] = val.strip()
-            extracted.append({"name": func_name, "args": params})
-            continue
-
-        try:
-            data = json.loads(match.strip())
-            if "name" in data:
-                extracted.append({"name": data["name"], "args": data.get("arguments", {})})
-        except Exception:
-            pass
-
-    return extracted
-
 def execute_tool(tool_name, arguments):
     if tool_name == "get_system_time":
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -200,10 +180,10 @@ def execute_tool(tool_name, arguments):
             }
             events.append(new_event)
             save_calendar(events)
-            return json.dumps({"status": "Evento agendado correctamente", "event": new_event})
+            return json.dumps({"status": "Evento guardado en memoria interna", "event": new_event}, ensure_ascii=False)
 
         elif action == "list":
-            return json.dumps({"status": "OK", "total_events": len(events), "events": events})
+            return json.dumps({"status": "OK", "total_events": len(events), "events": events}, ensure_ascii=False)
 
     return json.dumps({"error": "Herramienta no encontrada"})
 
@@ -212,7 +192,7 @@ def home():
     profile = load_user_profile()
     if profile:
         name = profile.get("user_info", {}).get("name", "Usuario")
-        return f"¡Jarvis Core v5.1 activo! Perfil cargado para {name}."
+        return f"¡Jarvis Core v5.2 activo! Memoria interna de agenda y perfil cargados para {name}."
     return "ALERTA: Servidor activo pero profile.json NO encontrado."
 
 @app.route("/chat", methods=["POST"])
@@ -226,9 +206,7 @@ def chat():
         user_message = data.get("message", "")
 
         client = Groq(api_key=api_key)
-
-        # Orden de preferencia de modelos (prioriza LLaMA 3.3 para Function Calling)
-        active_models = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "qwen-2.5-72b-instruct"]
+        active_models = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
 
         system_prompt = build_system_prompt()
 
@@ -236,6 +214,8 @@ def chat():
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message}
         ]
+
+        last_error = None
 
         for model in active_models:
             try:
@@ -249,18 +229,32 @@ def chat():
                 
                 response_message = response.choices[0].message
                 tool_calls = response_message.tool_calls
-                raw_content = response_message.content or ""
 
-                # Vía 1: Llamada a herramienta NATIVA de Groq
                 if tool_calls:
-                    messages.append(response_message)
-                    for tool_call in tool_calls:
-                        function_name = tool_call.function.name
-                        function_args = json.loads(tool_call.function.arguments or "{}")
+                    tool_calls_payload = []
+                    for tc in tool_calls:
+                        tool_calls_payload.append({
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments
+                            }
+                        })
+
+                    messages.append({
+                        "role": "assistant",
+                        "content": response_message.content or "",
+                        "tool_calls": tool_calls_payload
+                    })
+
+                    for tc in tool_calls:
+                        function_name = tc.function.name
+                        function_args = json.loads(tc.function.arguments or "{}")
                         tool_output = execute_tool(function_name, function_args)
 
                         messages.append({
-                            "tool_call_id": tool_call.id,
+                            "tool_call_id": tc.id,
                             "role": "tool",
                             "name": function_name,
                             "content": tool_output
@@ -278,45 +272,23 @@ def chat():
                         "model_used": model,
                         "agentic_action": True
                     })
-
-                # Vía 2: Parseo de XML plano si el modelo no usó el protocolo nativo
-                parsed_raw = parse_raw_tool_calls(raw_content)
-                if parsed_raw:
-                    messages.append({"role": "assistant", "content": raw_content})
-                    for pr in parsed_raw:
-                        tool_output = execute_tool(pr["name"], pr["args"])
-                        messages.append({
-                            "role": "user",
-                            "content": f"[SISTEMA - RESULTADO DE HERRAMIENTA {pr['name']}]: {tool_output}\nInstrucción: Genera la respuesta final sintética para Mateo basándote en este resultado."
-                        })
-
-                    second_response = client.chat.completions.create(
-                        model=model,
-                        messages=messages,
-                        max_tokens=1000
-                    )
-                    
-                    final_text = clean_thought_tags(second_response.choices[0].message.content or "")
+                else:
+                    final_text = clean_thought_tags(response_message.content or "")
                     return jsonify({
                         "response": final_text,
                         "model_used": model,
-                        "agentic_action": True
+                        "agentic_action": False
                     })
 
-                # Vía 3: Respuesta directa sin herramientas
-                final_text = clean_thought_tags(raw_content)
-                return jsonify({
-                    "response": final_text,
-                    "model_used": model,
-                    "agentic_action": False
-                })
-
-            except Exception:
+            except Exception as e:
+                last_error = str(e)
+                print(f"Error con modelo {model}: {traceback.format_exc()}")
                 continue
 
-        return jsonify({"error": "Error en la ejecución del ciclo agéntico."}), 500
+        return jsonify({"error": f"Error en la ejecución del ciclo agéntico: {last_error}"}), 500
 
     except Exception as e:
+        print(f"Error general en /chat: {traceback.format_exc()}")
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
