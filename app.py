@@ -1,5 +1,6 @@
 import os
 import json
+import re  # <--- Importar re
 from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -10,10 +11,8 @@ CORS(app)
 
 SYSTEM_PROMPT = """Eres Jarvis, un asistente personal autónomo de élite. Tu personalidad es elegante, aguda, analítica y sutilmente irónica.
 Tienes a tu disposición herramientas del sistema. Si necesitas saber la fecha/hora o ejecutar una acción interna, usa tus herramientas antes de dar una respuesta final.
-- Mantén un estilo directo, técnico y perspicaz.
-- Si el usuario te pide algo que requiere información en tiempo real del sistema, utiliza la función adecuada."""
+- Mantén un estilo directo, técnico y perspicaz."""
 
-# Definición de herramientas (Tools) disponibles para el agente
 TOOLS = [
     {
         "type": "function",
@@ -25,8 +24,11 @@ TOOLS = [
     }
 ]
 
+def clean_thought_tags(text):
+    """Elimina etiquetas de pensamiento interno <think>...</think> de los modelos."""
+    return re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
+
 def execute_tool(tool_name, arguments):
-    """Ejecuta las funciones locales según la petición del modelo."""
     if tool_name == "get_system_time":
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         return json.dumps({"current_time": now})
@@ -48,7 +50,6 @@ def chat():
 
         client = Groq(api_key=api_key)
 
-        # Obtener modelo activo
         try:
             models_response = client.models.list()
             active_models = [
@@ -63,10 +64,8 @@ def chat():
             {"role": "user", "content": user_message}
         ]
 
-        # Loop Agéntico: Intentar ejecución con herramientas
         for model in active_models:
             try:
-                # 1. Primera pasada: El modelo decide si usa una herramienta
                 response = client.chat.completions.create(
                     model=model,
                     messages=messages,
@@ -78,14 +77,11 @@ def chat():
                 response_message = response.choices[0].message
                 tool_calls = response_message.tool_calls
 
-                # 2. Si el modelo pide ejecutar una herramienta:
                 if tool_calls:
                     messages.append(response_message)
                     for tool_call in tool_calls:
                         function_name = tool_call.function.name
                         function_args = json.loads(tool_call.function.arguments or "{}")
-                        
-                        # Ejecutar la función en el servidor Flask
                         tool_output = execute_tool(function_name, function_args)
 
                         messages.append({
@@ -95,26 +91,27 @@ def chat():
                             "content": tool_output
                         })
 
-                    # 3. Segunda pasada: El modelo recibe el resultado de la herramienta y responde al usuario
                     second_response = client.chat.completions.create(
                         model=model,
                         messages=messages,
                         max_tokens=1000
                     )
+                    
+                    final_text = clean_thought_tags(second_response.choices[0].message.content or "")
                     return jsonify({
-                        "response": second_response.choices[0].message.content,
+                        "response": final_text,
                         "model_used": model,
                         "agentic_action": True
                     })
                 else:
-                    # Respuesta directa sin usar herramientas
+                    final_text = clean_thought_tags(response_message.content or "")
                     return jsonify({
-                        "response": response_message.content,
+                        "response": final_text,
                         "model_used": model,
                         "agentic_action": False
                     })
 
-            except Exception as e:
+            except Exception:
                 continue
 
         return jsonify({"error": "Error en la ejecución del ciclo agéntico."}), 500
