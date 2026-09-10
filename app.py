@@ -44,7 +44,8 @@ def build_system_prompt():
     
     base_prompt = """Eres Jarvis, un asistente personal autónomo de élite. Tu personalidad es elegante, aguda, analítica y sutilmente irónica.
 Tienes a tu disposición herramientas del sistema (hora del servidor, búsqueda web en tiempo real y gestión de calendario/agenda).
-Si ejecutas una herramienta, recibirás sus resultados. Una vez recibidos, debes responder a Mateo con una síntesis clara, directa y estructurada de la respuesta final, NUNCA mostrando etiquetas raw de código o XML."""
+Cuando necesites datos actualizados o modificar/consultar la agenda, DEBES invocar la herramienta correspondiente.
+Una vez recibidos los resultados de una herramienta, responde a Mateo con una síntesis clara, pulida y directa, NUNCA mostrando etiquetas internas de código o XML."""
 
     if profile:
         user_info = profile.get("user_info", {})
@@ -136,7 +137,6 @@ TOOLS = [
 ]
 
 def clean_thought_tags(text):
-    """Elimina bloques <think> y <tool_call> sin procesar."""
     if not text:
         return ""
     text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
@@ -144,7 +144,6 @@ def clean_thought_tags(text):
     return text.strip()
 
 def parse_raw_tool_calls(text):
-    """Extrae llamadas a herramientas cuando el modelo devuelve XML plano <tool_call>."""
     if not text or "<tool_call>" not in text:
         return []
     
@@ -171,7 +170,6 @@ def parse_raw_tool_calls(text):
     return extracted
 
 def execute_tool(tool_name, arguments):
-    """Ejecuta la lógica local según la función llamada."""
     if tool_name == "get_system_time":
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         return json.dumps({"current_time": now})
@@ -214,7 +212,7 @@ def home():
     profile = load_user_profile()
     if profile:
         name = profile.get("user_info", {}).get("name", "Usuario")
-        return f"¡Jarvis Core v5.0 activo! Perfil cargado para {name}. Parser agéntico multimodelo activo."
+        return f"¡Jarvis Core v5.1 activo! Perfil cargado para {name}."
     return "ALERTA: Servidor activo pero profile.json NO encontrado."
 
 @app.route("/chat", methods=["POST"])
@@ -229,14 +227,8 @@ def chat():
 
         client = Groq(api_key=api_key)
 
-        try:
-            models_response = client.models.list()
-            active_models = [
-                m.id for m in models_response.data 
-                if "whisper" not in m.id and "guard" not in m.id
-            ]
-        except Exception:
-            active_models = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+        # Orden de preferencia de modelos (prioriza LLaMA 3.3 para Function Calling)
+        active_models = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "qwen-2.5-72b-instruct"]
 
         system_prompt = build_system_prompt()
 
@@ -259,33 +251,18 @@ def chat():
                 tool_calls = response_message.tool_calls
                 raw_content = response_message.content or ""
 
-                executable_calls = []
-
+                # Vía 1: Llamada a herramienta NATIVA de Groq
                 if tool_calls:
-                    for tc in tool_calls:
-                        executable_calls.append({
-                            "id": tc.id,
-                            "name": tc.function.name,
-                            "args": json.loads(tc.function.arguments or "{}")
-                        })
-                else:
-                    parsed_raw = parse_raw_tool_calls(raw_content)
-                    for idx, pr in enumerate(parsed_raw):
-                        executable_calls.append({
-                            "id": f"call_raw_{idx}",
-                            "name": pr["name"],
-                            "args": pr["args"]
-                        })
-
-                if executable_calls:
                     messages.append(response_message)
-                    for call in executable_calls:
-                        tool_output = execute_tool(call["name"], call["args"])
+                    for tool_call in tool_calls:
+                        function_name = tool_call.function.name
+                        function_args = json.loads(tool_call.function.arguments or "{}")
+                        tool_output = execute_tool(function_name, function_args)
 
                         messages.append({
-                            "tool_call_id": call["id"],
+                            "tool_call_id": tool_call.id,
                             "role": "tool",
-                            "name": call["name"],
+                            "name": function_name,
                             "content": tool_output
                         })
 
@@ -301,13 +278,38 @@ def chat():
                         "model_used": model,
                         "agentic_action": True
                     })
-                else:
-                    final_text = clean_thought_tags(raw_content)
+
+                # Vía 2: Parseo de XML plano si el modelo no usó el protocolo nativo
+                parsed_raw = parse_raw_tool_calls(raw_content)
+                if parsed_raw:
+                    messages.append({"role": "assistant", "content": raw_content})
+                    for pr in parsed_raw:
+                        tool_output = execute_tool(pr["name"], pr["args"])
+                        messages.append({
+                            "role": "user",
+                            "content": f"[SISTEMA - RESULTADO DE HERRAMIENTA {pr['name']}]: {tool_output}\nInstrucción: Genera la respuesta final sintética para Mateo basándote en este resultado."
+                        })
+
+                    second_response = client.chat.completions.create(
+                        model=model,
+                        messages=messages,
+                        max_tokens=1000
+                    )
+                    
+                    final_text = clean_thought_tags(second_response.choices[0].message.content or "")
                     return jsonify({
                         "response": final_text,
                         "model_used": model,
-                        "agentic_action": False
+                        "agentic_action": True
                     })
+
+                # Vía 3: Respuesta directa sin herramientas
+                final_text = clean_thought_tags(raw_content)
+                return jsonify({
+                    "response": final_text,
+                    "model_used": model,
+                    "agentic_action": False
+                })
 
             except Exception:
                 continue
