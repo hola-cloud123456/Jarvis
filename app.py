@@ -13,7 +13,6 @@ CORS(app)
 CALENDAR_FILE = os.path.join(os.path.dirname(__file__), "calendar.json")
 
 def load_calendar():
-    """Carga los eventos guardados en el calendario."""
     if os.path.exists(CALENDAR_FILE):
         try:
             with open(CALENDAR_FILE, "r", encoding="utf-8") as f:
@@ -23,7 +22,6 @@ def load_calendar():
     return []
 
 def save_calendar(events):
-    """Guarda los eventos en el archivo calendar.json."""
     try:
         with open(CALENDAR_FILE, "w", encoding="utf-8") as f:
             json.dump(events, f, ensure_ascii=False, indent=2)
@@ -32,7 +30,6 @@ def save_calendar(events):
         return False
 
 def load_user_profile():
-    """Carga el perfil de usuario y contexto desde profile.json."""
     profile_path = os.path.join(os.path.dirname(__file__), "profile.json")
     if os.path.exists(profile_path):
         try:
@@ -43,12 +40,11 @@ def load_user_profile():
     return {}
 
 def build_system_prompt():
-    """Construye el Prompt del Sistema inyectando el perfil real de Mateo."""
     profile = load_user_profile()
     
     base_prompt = """Eres Jarvis, un asistente personal autónomo de élite. Tu personalidad es elegante, aguda, analítica y sutilmente irónica.
 Tienes a tu disposición herramientas del sistema (hora del servidor, búsqueda web en tiempo real y gestión de calendario/agenda).
-Usa tus herramientas de manera autónoma cuando el usuario te pida consultar datos externos, buscar información o gestionar sus tareas e hitos."""
+Si ejecutas una herramienta, recibirás sus resultados. Una vez recibidos, debes responder a Mateo con una síntesis clara, directa y estructurada de la respuesta final, NUNCA mostrando etiquetas raw de código o XML."""
 
     if profile:
         user_info = profile.get("user_info", {})
@@ -80,7 +76,6 @@ Usa tus herramientas de manera autónoma cuando el usuario te pida consultar dat
     base_prompt += "\n\nAplica todo este contexto en tus respuestas y decisiones de forma directa e implícita."
     return base_prompt
 
-# Definición de herramientas (Tools) del Agente
 TOOLS = [
     {
         "type": "function",
@@ -141,13 +136,42 @@ TOOLS = [
 ]
 
 def clean_thought_tags(text):
-    """Elimina bloques de razonamiento interno <think>...</think>."""
+    """Elimina bloques <think> y <tool_call> sin procesar."""
     if not text:
         return ""
-    return re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+    text = re.sub(r'<tool_call>.*?</tool_call>', '', text, flags=re.DOTALL)
+    return text.strip()
+
+def parse_raw_tool_calls(text):
+    """Extrae llamadas a herramientas cuando el modelo devuelve XML plano <tool_call>."""
+    if not text or "<tool_call>" not in text:
+        return []
+    
+    extracted = []
+    matches = re.findall(r'<tool_call>(.*?)</tool_call>', text, re.DOTALL)
+    for match in matches:
+        func_match = re.search(r'<function=(.*?)>', match)
+        if func_match:
+            func_name = func_match.group(1).strip()
+            params = {}
+            param_matches = re.findall(r'<parameter=(.*?)>(.*?)</parameter>', match, re.DOTALL)
+            for key, val in param_matches:
+                params[key.strip()] = val.strip()
+            extracted.append({"name": func_name, "args": params})
+            continue
+
+        try:
+            data = json.loads(match.strip())
+            if "name" in data:
+                extracted.append({"name": data["name"], "args": data.get("arguments", {})})
+        except Exception:
+            pass
+
+    return extracted
 
 def execute_tool(tool_name, arguments):
-    """Ejecuta la lógica local según la función llamada por la IA."""
+    """Ejecuta la lógica local según la función llamada."""
     if tool_name == "get_system_time":
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         return json.dumps({"current_time": now})
@@ -190,7 +214,7 @@ def home():
     profile = load_user_profile()
     if profile:
         name = profile.get("user_info", {}).get("name", "Usuario")
-        return f"¡Jarvis Core activo! Perfil cargado para {name}. Módulos: Búsqueda Web + Calendario integrados."
+        return f"¡Jarvis Core v5.0 activo! Perfil cargado para {name}. Parser agéntico multimodelo activo."
     return "ALERTA: Servidor activo pero profile.json NO encontrado."
 
 @app.route("/chat", methods=["POST"])
@@ -233,18 +257,35 @@ def chat():
                 
                 response_message = response.choices[0].message
                 tool_calls = response_message.tool_calls
+                raw_content = response_message.content or ""
+
+                executable_calls = []
 
                 if tool_calls:
+                    for tc in tool_calls:
+                        executable_calls.append({
+                            "id": tc.id,
+                            "name": tc.function.name,
+                            "args": json.loads(tc.function.arguments or "{}")
+                        })
+                else:
+                    parsed_raw = parse_raw_tool_calls(raw_content)
+                    for idx, pr in enumerate(parsed_raw):
+                        executable_calls.append({
+                            "id": f"call_raw_{idx}",
+                            "name": pr["name"],
+                            "args": pr["args"]
+                        })
+
+                if executable_calls:
                     messages.append(response_message)
-                    for tool_call in tool_calls:
-                        function_name = tool_call.function.name
-                        function_args = json.loads(tool_call.function.arguments or "{}")
-                        tool_output = execute_tool(function_name, function_args)
+                    for call in executable_calls:
+                        tool_output = execute_tool(call["name"], call["args"])
 
                         messages.append({
-                            "tool_call_id": tool_call.id,
+                            "tool_call_id": call["id"],
                             "role": "tool",
-                            "name": function_name,
+                            "name": call["name"],
                             "content": tool_output
                         })
 
@@ -261,7 +302,7 @@ def chat():
                         "agentic_action": True
                     })
                 else:
-                    final_text = clean_thought_tags(response_message.content or "")
+                    final_text = clean_thought_tags(raw_content)
                     return jsonify({
                         "response": final_text,
                         "model_used": model,
