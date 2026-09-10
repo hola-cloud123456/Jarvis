@@ -1,0 +1,38 @@
+{
+  "user_info": {
+    "name": "Mateo",
+    "allowed_titles": ["Mateo", "Moya", "Señor Mateo", "Señor Moya"]
+  },
+  "academic": {
+    "level": "1º de Bachillerato",
+    "branch": "Tecnológico",
+    "target_grade": 10.0
+  },
+  "athletic_goals": {
+    "primary": "Jugador profesional de baloncesto"
+  },
+  "life_goals": [
+    "Construir empresas tecnológicas rentables",
+    "Alcanzar libertad financiera y bienestar personal"
+  ],
+  "business_roadmap": [
+    {
+      "phase": 1,
+      "service": "Desarrollo web asistido con Inteligencia Artificial",
+      "status": "En fase de lanzamiento"
+    },
+    {
+      "phase": 2,
+      "service": "Marketing digital y gestión de redes sociales"
+    },
+    {
+      "phase": 3,
+      "service": "Creación de Agentes de IA y Automatizaciones avanzadas"
+    }
+  ],
+  "operating_principles": [
+    "Cuestionar ineficiencias en decisiones técnicas, académicas o de negocio.",
+    "Priorizar soluciones eficientes, escalables y con bajo coste operativo.",
+    "Comunicación directa, técnica y sin rodeos."
+  ]
+}
