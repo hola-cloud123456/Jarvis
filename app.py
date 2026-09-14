@@ -6,18 +6,18 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-# Tu clave de Groq integrada directamente
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "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").strip()
+# Tu clave de API de Groq
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "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").strip()
 
 def get_groq_response(prompt: str) -> str:
-    """Envía la pregunta a la API oficial de Groq con tu API Key."""
+    """Envía la petición usando la lista exacta de modelos activos en tu cuenta de Groq."""
     
-    # Modelos válidos de Groq (si el primero falla, prueba los siguientes de forma automática)
+    # Modelos activos confirmados directamente por tu endpoint de Groq
     candidate_models = [
-        "llama-3.3-70b-versatile",
-        "llama3-8b-8192",
-        "llama3-70b-8192",
-        "gemma2-9b-it"
+        "openai/gpt-oss-120b",
+        "openai/gpt-oss-20b",
+        "qwen/qwen3.6-27b",
+        "groq/compound"
     ]
     
     headers = {
@@ -32,24 +32,30 @@ def get_groq_response(prompt: str) -> str:
             payload = {
                 "model": model,
                 "messages": [
-                    {"role": "system", "content": "Eres JARVIS, el asistente personal de Mateo. Responde siempre en español, de forma clara, directa, exacta y servicial a lo que te pregunten."},
-                    {"role": "user", "content": prompt}
+                    {
+                        "role": "system",
+                        "content": "Eres JARVIS, el asistente personal de Mateo. Responde siempre en español, de forma clara, directa, exacta y servicial."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
                 ],
                 "temperature": 0.7,
                 "max_tokens": 1024
             }
-            res = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload, timeout=12)
+            res = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload, timeout=10)
             
             if res.status_code == 200:
                 data = res.json()
                 return data["choices"][0]["message"]["content"]
             else:
-                last_error = f"Modelo {model} devolvió estado {res.status_code}: {res.text}"
+                last_error = f"Modelo {model} (Código {res.status_code}): {res.text}"
         except Exception as e:
-            last_error = f"Error de conexión con {model}: {str(e)}"
+            last_error = f"Error en {model}: {str(e)}"
             continue
 
-    return f"⚠️ Error al conectar con Groq. Detalle: {last_error}"
+    return f"⚠️ Error de conexión con Groq: {last_error}"
 
 
 @app.route('/', methods=['GET'])
