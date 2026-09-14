@@ -1,4 +1,11 @@
 flask
 flask-cors
-groq
-duckduckgo-search
+requests
+python-docx
+openpyxl
+python-pptx
+python-telegram-bot
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
+psutil
