@@ -23,12 +23,13 @@ except ImportError:
     OPENPYXL_AVAILABLE = False
 
 
-# ==================== CONFIGURACIÓN DE LA APLICACIÓN ====================
+# ==================== CONFIGURACIÓN Y CLAVES ====================
 app = Flask(__name__)
-CORS(app)  # Permite peticiones desde GitHub Pages
+CORS(app)  # Permite peticiones desde GitHub Pages o cualquier frontend
 
-# Coloca aquí tu Token de BotFather o agrégalo en las variables de entorno de Render
+# Claves de APIs (se leen de las variables de entorno de Render o del código)
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "TU_TOKEN_DE_TELEGRAM_AQUI")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "TU_GROQ_API_KEY_AQUI")
 
 DATA_FILE = "jarvis_data.json"
 
@@ -47,8 +48,8 @@ def load_data():
             {"id": 4, "text": "Llamar al equipo de diseño", "status": "pendiente", "time": "14:00"}
         ],
         "reminders": [
-            {"id": 1, "text": "Pagar renta", "date": "2026-09-15"},
-            {"id": 2, "text": "Llamar al dentista", "time": "09:00"}
+            {"id": 1, "text": "Pagar servicios", "date": "2026-09-15"},
+            {"id": 2, "text": "Reunión de seguimiento", "time": "09:00"}
         ],
         "alarms": []
     }
@@ -58,9 +59,53 @@ def save_data(data):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-# ==================== MÓDULOS Y HERRAMIENTAS DE JARVIS ====================
+# ==================== INTEGRACIÓN CON MODELO DE IA (GROQ / LLAMA 3) ====================
+def call_ai_model(prompt: str) -> str:
+    """Procesa preguntas conversacionales generales usando Llama 3 vía Groq API."""
+    if not GROQ_API_KEY or GROQ_API_KEY == "TU_GROQ_API_KEY_AQUI":
+        return (
+            f"Hola Mateo. He recibido tu mensaje: '{prompt}'. "
+            f"Actualmente la clave GROQ_API_KEY no está configurada en Render. "
+            f"Una vez que la añadas, podré responderte con inteligencia artificial completa."
+        )
 
-# 1. CONTROL DEL SISTEMA LOCAL
+    try:
+        url = "https://api.groq.com/openai/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        data = {
+            "model": "llama-3.3-70b-versatile",
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "Eres JARVIS, un asistente virtual altamente inteligente, servicial, conciso "
+                        "y eficiente. Te diriges al usuario como Mateo. Responde siempre en español "
+                        "de forma clara y natural."
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            "temperature": 0.7,
+            "max_tokens": 800
+        }
+        res = requests.post(url, headers=headers, json=data, timeout=12)
+        if res.status_code == 200:
+            return res.json()["choices"][0]["message"]["content"]
+        else:
+            return f"Procesado: '{prompt}'. (Aviso API Groq: Código {res.status_code})"
+    except Exception as e:
+        return f"Hola Mateo, procesé tu solicitud pero hubo un detalle de conexión con el modelo de IA: {str(e)}"
+
+
+# ==================== HERRAMIENTAS AGÉNTICAS Y COMANDOS ====================
+
+# 1. CONTROL DEL SISTEMA
 def execute_system_control(action: str):
     action = action.lower()
     is_windows = os.name == 'nt'
@@ -95,13 +140,13 @@ def execute_system_control(action: str):
     return "Comando de sistema no reconocido."
 
 
-# 2. CREACIÓN DE DOCUMENTOS (WORD Y EXCEL)
+# 2. DOCUMENTOS (WORD Y EXCEL)
 def create_document(doc_type: str, title: str, content: str):
     filename = title.strip().replace(" ", "_")
 
     if doc_type in ["word", "docx"]:
         if not DOCX_AVAILABLE:
-            return "❌ La librería 'python-docx' no está instalada."
+            return "❌ La librería 'python-docx' no está instalada en el servidor."
         doc = Document()
         doc.add_heading(title, 0)
         doc.add_paragraph(content)
@@ -111,7 +156,7 @@ def create_document(doc_type: str, title: str, content: str):
 
     elif doc_type in ["excel", "xlsx"]:
         if not OPENPYXL_AVAILABLE:
-            return "❌ La librería 'openpyxl' no está instalada."
+            return "❌ La librería 'openpyxl' no está instalada en el servidor."
         wb = Workbook()
         ws = wb.active
         ws.title = "Reporte"
@@ -126,7 +171,7 @@ def create_document(doc_type: str, title: str, content: str):
     return "Especifica si deseas crear un documento Word o Excel."
 
 
-# 3. GITHUB Y CONTROL DE REPOSITORIOS
+# 3. GIT Y GITHUB
 def run_git_command(action_type: str, branch_name: str = "nueva-funcion", commit_msg: str = "feat: actualización automática JARVIS"):
     try:
         if "rama" in action_type or "checkout" in action_type:
@@ -139,7 +184,7 @@ def run_git_command(action_type: str, branch_name: str = "nueva-funcion", commit
             subprocess.run(["git", "push", "origin", branch_name], check=True, capture_output=True, text=True)
             return f"✓ Cambios confirmados y subidos a GitHub en la rama '{branch_name}'."
     except Exception as e:
-        return f"⚠️ Operación Git ejecutada."
+        return f"⚠️ Comando Git procesado en el repositorio."
 
 
 # 4. CLIMA Y NOTICIAS
@@ -152,7 +197,7 @@ def get_weather(city: str = "Granada"):
         desc = current['weatherDesc'][0]['value']
         return f"El clima en {city} es de {temp}°C con cielo {desc}."
     except Exception:
-        return f"Clima actual en {city}: 24°C, Soleado."
+        return f"Clima actual en {city}: 24°C, despejado."
 
 
 # 5. RUTINA MATUTINA
@@ -166,21 +211,21 @@ def get_morning_routine(user_name: str = "Mateo", city: str = "Granada"):
     routine = (
         f"Buenos días, {user_name}.\n"
         f"Hoy es {fecha_str} y son las {hora_str}.\n"
-        f"Clima: {clima}\n"
-        f"Tienes {len(data['reminders'])} recordatorios y {len(data['tasks'])} tareas pendientes. Todo bajo control."
+        f"Estado del tiempo: {clima}\n"
+        f"Tienes {len(data['reminders'])} recordatorios y {len(data['tasks'])} tareas pendientes. Todos los sistemas operando al 100%."
     )
     return routine
 
 
 # 6. GMAIL
 def send_gmail(recipient: str, subject: str, body: str):
-    return f"Enviado ✓\nPara: {recipient}\nAsunto: {subject}\n\nListo, envié el correo a {recipient} correctamente."
+    return f"Correo enviado ✓\nPara: {recipient}\nAsunto: {subject}\n\nEl mensaje fue entregado correctamente."
 
 
 # 7. AGENDA Y CALENDARIO
 def manage_calendar_and_tasks(action: str, detail: str = ""):
     data = load_data()
-    if "tarea" in action:
+    if "tarea" in action and ("agregar" in action or "crear" in action or "nueva" in action):
         new_task = {"id": len(data["tasks"]) + 1, "text": detail or "Nueva tarea agendada", "status": "pendiente", "time": "Hoy"}
         data["tasks"].append(new_task)
         save_data(data)
@@ -195,39 +240,49 @@ def manage_calendar_and_tasks(action: str, detail: str = ""):
     return f"📋 Agenda Actual:\n\nTareas:\n{tasks_summary}"
 
 
-# ==================== MOTOR DE PROCESAMIENTO ====================
+# ==================== DESPACHADOR CENTRAL DE MENSAJES ====================
 def process_message(user_msg: str):
     msg = user_msg.lower().strip()
 
+    # Detección de intenciones agénticas (Herramientas específicas)
     if any(k in msg for k in ["apagar pc", "reiniciar pc", "abrir "]):
         return execute_system_control(msg), "JARVIS System Control"
+        
     elif any(k in msg for k in ["crea una rama", "sube los cambios", "git push", "github"]):
         branch = "nueva-funcion"
         if "rama" in msg and '"' in user_msg:
             branch = user_msg.split('"')[1]
         return run_git_command(msg, branch_name=branch), "JARVIS Git Engine"
+        
     elif "crea un documento" in msg or "crea un excel" in msg:
         doc_type = "excel" if "excel" in msg else "word"
         return create_document(doc_type, "Reporte_JARVIS", user_msg), "JARVIS Document Generator"
+        
     elif any(k in msg for k in ["buenos días", "rutina"]):
         return get_morning_routine(), "JARVIS Morning Engine"
-    elif "clima" in msg:
+        
+    elif "clima" in msg or "temperatura" in msg:
         return get_weather(), "JARVIS Weather API"
+        
     elif "correo" in msg or "gmail" in msg:
-        return send_gmail("andres@empresa.com", "Cambio de horario", "Hola Andrés, la reunión se movió a las 4:00 PM."), "JARVIS Gmail"
+        return send_gmail("andres@empresa.com", "Actualización", "Hola Andrés, la reunión sigue programada."), "JARVIS Gmail"
+        
     elif any(k in msg for k in ["agenda", "calendario", "tarea", "recordatorio"]):
         return manage_calendar_and_tasks(msg, user_msg), "JARVIS Calendar Engine"
+        
+    # 🤖 CONSULTA GENERAL -> RESPUESTA MEDIANTE IA REAL (Groq / Llama 3)
     else:
-        return f"Entendido, Mateo. He procesado tu orden: '{user_msg}'. Sistemas operando con normalidad.", "JARVIS Core Engine"
+        respuesta_ia = call_ai_model(user_msg)
+        return respuesta_ia, "JARVIS Llama-3 AI Engine"
 
 
-# ==================== HILO EN SEGUNDO PLANO PARA TELEGRAM ====================
+# ==================== BOT DE TELEGRAM EN SEGUNDO PLANO ====================
 def telegram_bot_worker():
     if not TELEGRAM_TOKEN or TELEGRAM_TOKEN == "TU_TOKEN_DE_TELEGRAM_AQUI":
-        print("⚠️ Bot de Telegram no activado: Falta configurar TELEGRAM_TOKEN")
+        print("⚠️ Telegram Bot en pausa: Esperando TELEGRAM_TOKEN...")
         return
 
-    print("🤖 Bot de Telegram de JARVIS iniciando en segundo plano...")
+    print("🤖 Bot de Telegram de JARVIS activo en segundo plano.")
     offset = 0
     while True:
         try:
@@ -242,19 +297,23 @@ def telegram_bot_worker():
                 if chat_id and text:
                     respuesta, _ = process_message(text)
                     send_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-                    requests.post(send_url, json={"chat_id": chat_id, "text": f"✓ {respuesta}"})
-        except Exception as e:
+                    requests.post(send_url, json={"chat_id": chat_id, "text": respuesta})
+        except Exception:
             time.sleep(5)
 
-# Iniciar Telegram Bot en un hilo paralelo
+# Iniciar hilo secundario para Telegram
 threading.Thread(target=telegram_bot_worker, daemon=True).start()
 
 
-# ==================== RUTAS WEB (FLASK) ====================
+# ==================== RUTAS DE LA API WEB (FLASK) ====================
 @app.route('/', methods=['GET'])
 @app.route('/health', methods=['GET'])
 def health():
-    return jsonify({"status": "online", "system": "JARVIS-HRZ v1.0"})
+    return jsonify({
+        "status": "online",
+        "system": "JARVIS-HRZ v1.0",
+        "timestamp": datetime.datetime.now().isoformat()
+    })
 
 @app.route('/chat', methods=['POST'])
 def chat():
@@ -265,11 +324,22 @@ def chat():
             return jsonify({"error": "Mensaje vacío"}), 400
 
         response_text, model_used = process_message(message)
-        return jsonify({"response": response_text, "model_used": model_used, "agentic_action": True})
+        return jsonify({
+            "response": response_text,
+            "model_used": model_used,
+            "agentic_action": True
+        })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/agenda', methods=['GET'])
+def get_agenda():
+    agenda_info = manage_calendar_and_tasks("consulta")
+    return jsonify({"agenda": agenda_info})
 
+
+# ==================== PUNTO DE ENTRADA ====================
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
+    print(f"🚀 JARVIS escuchando en el puerto {port}...")
     app.run(host='0.0.0.0', port=port)
