@@ -28,8 +28,8 @@ app = Flask(__name__)
 CORS(app)  # Permite peticiones desde GitHub Pages o cualquier frontend
 
 # Claves de APIs (se leen de las variables de entorno de Render o del código)
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "TU_TOKEN_DE_TELEGRAM_AQUI")
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "TU_GROQ_API_KEY_AQUI")
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "8719262299:AAHyeOtFnii5h1ykVic4iCcKb5tf_wOsfaE")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "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")
 
 DATA_FILE = "jarvis_data.json"
 
