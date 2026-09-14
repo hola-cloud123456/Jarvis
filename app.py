@@ -59,14 +59,13 @@ def save_data(data):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-# ==================== INTEGRACIÓN CON MODELO DE IA (GROQ / LLAMA 3) ====================
+# ==================== INTEGRACIÓN CON MODELO DE IA (GROQ / LLAMA 3.1) ====================
 def call_ai_model(prompt: str) -> str:
-    """Procesa preguntas conversacionales generales usando Llama 3 vía Groq API."""
+    """Procesa preguntas conversacionales generales usando Llama 3.1 en Groq API."""
     if not GROQ_API_KEY or GROQ_API_KEY == "TU_GROQ_API_KEY_AQUI":
         return (
             f"Hola Mateo. He recibido tu mensaje: '{prompt}'. "
-            f"Actualmente la clave GROQ_API_KEY no está configurada en Render. "
-            f"Una vez que la añadas, podré responderte con inteligencia artificial completa."
+            f"La clave GROQ_API_KEY no está configurada aún en las variables de entorno de Render."
         )
 
     try:
@@ -76,14 +75,14 @@ def call_ai_model(prompt: str) -> str:
             "Content-Type": "application/json"
         }
         data = {
-            "model": "llama-3.3-70b-versatile",
+            "model": "llama-3.1-8b-instant",  # Modelo 100% activo y rápido en Groq
             "messages": [
                 {
                     "role": "system",
                     "content": (
                         "Eres JARVIS, un asistente virtual altamente inteligente, servicial, conciso "
                         "y eficiente. Te diriges al usuario como Mateo. Responde siempre en español "
-                        "de forma clara y natural."
+                        "de forma clara, fluida y natural."
                     )
                 },
                 {
@@ -98,9 +97,9 @@ def call_ai_model(prompt: str) -> str:
         if res.status_code == 200:
             return res.json()["choices"][0]["message"]["content"]
         else:
-            return f"Procesado: '{prompt}'. (Aviso API Groq: Código {res.status_code})"
+            return f"Error en la respuesta de IA (Código {res.status_code}): {res.text}"
     except Exception as e:
-        return f"Hola Mateo, procesé tu solicitud pero hubo un detalle de conexión con el modelo de IA: {str(e)}"
+        return f"Hola Mateo, hubo un inconveniente de conexión con la IA: {str(e)}"
 
 
 # ==================== HERRAMIENTAS AGÉNTICAS Y COMANDOS ====================
@@ -270,10 +269,10 @@ def process_message(user_msg: str):
     elif any(k in msg for k in ["agenda", "calendario", "tarea", "recordatorio"]):
         return manage_calendar_and_tasks(msg, user_msg), "JARVIS Calendar Engine"
         
-    # 🤖 CONSULTA GENERAL -> RESPUESTA MEDIANTE IA REAL (Groq / Llama 3)
+    # 🤖 CONSULTA GENERAL -> RESPUESTA MEDIANTE IA REAL (Groq / Llama 3.1)
     else:
         respuesta_ia = call_ai_model(user_msg)
-        return respuesta_ia, "JARVIS Llama-3 AI Engine"
+        return respuesta_ia, "JARVIS Llama-3.1 AI Engine"
 
 
 # ==================== BOT DE TELEGRAM EN SEGUNDO PLANO ====================
