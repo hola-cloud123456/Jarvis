@@ -416,9 +416,41 @@
 </div>
 
 <script>
-  const API_URL = 'https://jarvis-o4pq.onrender.com/chat';
+  const API_URL = '/chat';
+  const CALENDAR_URL = '/api/calendar';
+  const TOKEN_KEY = 'jarvis_access_token';
+  const SESSION_KEY = 'jarvis_session_id';
+  let sessionId = localStorage.getItem(SESSION_KEY);
+  if (!sessionId) {
+    sessionId = (window.crypto && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : `session_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    localStorage.setItem(SESSION_KEY, sessionId);
+  }
   const coreOrb = document.getElementById('coreOrb');
   const statusLine = document.getElementById('statusLine');
+
+  function requestHeaders(){
+    const headers = { 'Content-Type': 'application/json' };
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (token) headers.Authorization = `Bearer ${token}`;
+    return headers;
+  }
+
+  async function jarvisFetch(url, options = {}, allowTokenPrompt = true){
+    const response = await fetch(url, {
+      ...options,
+      headers: { ...requestHeaders(), ...(options.headers || {}) }
+    });
+    if (response.status === 401 && allowTokenPrompt){
+      const token = window.prompt('Introduce tu clave privada de acceso a JARVIS:');
+      if (token){
+        localStorage.setItem(TOKEN_KEY, token.trim());
+        return jarvisFetch(url, options, false);
+      }
+    }
+    return response;
+  }
 
   function toggleSidebar(){
     document.getElementById('sidebar').classList.toggle('open');
@@ -440,18 +472,16 @@
     const loadingId = appendLoading();
 
     try{
-      const res = await fetch(API_URL, {
+      const res = await jarvisFetch(API_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message })
+        body: JSON.stringify({ message, session_id: sessionId })
       });
       const data = await res.json();
       removeMessage(loadingId);
       setThinking(false);
 
-      if (data.response){
-        appendTypedMessage(data.response, data.model_used, data.agentic_action);
-        refreshAgenda();
+      if (res.ok && data.response){
+        appendTypedMessage(data.response, data.model_used);
       } else {
         appendMessage('❌ Error: ' + (data.error || 'Respuesta no válida del servidor.'), 'jarvis');
       }
@@ -475,7 +505,14 @@
     if (sender === 'jarvis' && model){
       const meta = document.createElement('div');
       meta.className = 'meta';
-      meta.innerHTML = `<span>Modelo: ${model}</span> ${agentic ? '<span>· Acción agéntica ejecutada</span>' : ''}`;
+      const modelLabel = document.createElement('span');
+      modelLabel.textContent = `Modelo: ${model}`;
+      meta.appendChild(modelLabel);
+      if (agentic){
+        const actionLabel = document.createElement('span');
+        actionLabel.textContent = '· Acción agéntica ejecutada';
+        meta.appendChild(actionLabel);
+      }
       msgDiv.appendChild(meta);
     }
 
@@ -485,6 +522,11 @@
   }
 
   function appendTypedMessage(text, model = null, agentic = false){
+    text = String(text || '');
+    if (!text){
+      appendMessage('JARVIS no devolvió contenido.', 'jarvis');
+      return;
+    }
     const chat = document.getElementById('chatContainer');
     const msgDiv = document.createElement('div');
     msgDiv.className = 'message jarvis';
@@ -512,7 +554,14 @@
         if (model){
           const meta = document.createElement('div');
           meta.className = 'meta';
-          meta.innerHTML = `<span>Modelo: ${model}</span> ${agentic ? '<span>· Acción agéntica ejecutada</span>' : ''}`;
+          const modelLabel = document.createElement('span');
+          modelLabel.textContent = `Modelo: ${model}`;
+          meta.appendChild(modelLabel);
+          if (agentic){
+            const actionLabel = document.createElement('span');
+            actionLabel.textContent = '· Acción agéntica ejecutada';
+            meta.appendChild(actionLabel);
+          }
           msgDiv.appendChild(meta);
         }
       }
@@ -537,18 +586,44 @@
 
   async function refreshAgenda(){
     try{
-      const res = await fetch(API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: "Jarvis, lista los eventos de mi calendario interno brevemente en formato JSON o texto." })
-      });
+      const res = await jarvisFetch(CALENDAR_URL);
       const data = await res.json();
       const list = document.getElementById('agendaList');
-      if (data.response){
-        list.innerHTML = `<div class="event-card"><div class="title">Estado de la agenda</div><div class="date">${data.response.substring(0, 180)}…</div></div>`;
+      list.replaceChildren();
+      if (!res.ok) throw new Error(data.error || 'No se pudo leer la agenda');
+      if (!Array.isArray(data.events) || data.events.length === 0){
+        const empty = document.createElement('div');
+        empty.className = 'event-card';
+        const title = document.createElement('div');
+        title.className = 'title';
+        title.textContent = 'Sin compromisos';
+        empty.appendChild(title);
+        list.appendChild(empty);
+        return;
       }
+      data.events.slice(0, 20).forEach((event) => {
+        const card = document.createElement('div');
+        card.className = 'event-card';
+        const title = document.createElement('div');
+        title.className = 'title';
+        title.textContent = String(event.title || event.name || event.event || 'Evento');
+        const date = document.createElement('div');
+        date.className = 'date';
+        date.textContent = String(event.date || event.datetime || event.time || 'Fecha no indicada');
+        card.append(title, date);
+        list.appendChild(card);
+      });
     } catch(e){
       console.log("Error cargando agenda sidebar:", e);
+      const list = document.getElementById('agendaList');
+      list.replaceChildren();
+      const card = document.createElement('div');
+      card.className = 'event-card';
+      const title = document.createElement('div');
+      title.className = 'title';
+      title.textContent = 'Agenda no disponible';
+      card.appendChild(title);
+      list.appendChild(card);
     }
   }
 
