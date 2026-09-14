@@ -6,51 +6,57 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "").strip()
+# Tu clave de Groq integrada directamente
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "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").strip()
 
-def get_ai_response(prompt: str) -> str:
-    # 1. Intento con Groq (Si la API Key está puesta en Render)
-    if GROQ_API_KEY:
+def get_groq_response(prompt: str) -> str:
+    """Envía la pregunta a la API oficial de Groq con tu API Key."""
+    
+    # Modelos válidos de Groq (si el primero falla, prueba los siguientes de forma automática)
+    candidate_models = [
+        "llama-3.3-70b-versatile",
+        "llama3-8b-8192",
+        "llama3-70b-8192",
+        "gemma2-9b-it"
+    ]
+    
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    last_error = ""
+
+    for model in candidate_models:
         try:
-            url = "https://api.groq.com/openai/v1/chat/completions"
-            headers = {
-                "Authorization": f"Bearer {GROQ_API_KEY}",
-                "Content-Type": "application/json"
-            }
             payload = {
-                "model": "llama-3.3-70b-versatile",
+                "model": model,
                 "messages": [
-                    {"role": "system", "content": "Eres JARVIS, el asistente de Mateo. Responde siempre en español, de forma natural, cercana, clara y directa."},
+                    {"role": "system", "content": "Eres JARVIS, el asistente personal de Mateo. Responde siempre en español, de forma clara, directa, exacta y servicial a lo que te pregunten."},
                     {"role": "user", "content": prompt}
-                ]
+                ],
+                "temperature": 0.7,
+                "max_tokens": 1024
             }
-            resp = requests.post(url, headers=headers, json=payload, timeout=8)
-            if resp.status_code == 200:
-                return resp.json()["choices"][0]["message"]["content"]
-        except Exception:
-            pass
+            res = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload, timeout=12)
+            
+            if res.status_code == 200:
+                data = res.json()
+                return data["choices"][0]["message"]["content"]
+            else:
+                last_error = f"Modelo {model} devolvió estado {res.status_code}: {res.text}"
+        except Exception as e:
+            last_error = f"Error de conexión con {model}: {str(e)}"
+            continue
 
-    # 2. Servidor gratuito alternativo (sin clave requerida)
-    try:
-        clean_prompt = requests.utils.quote(f"Responde en español a Mateo como JARVIS: {prompt}")
-        url = f"https://text.pollinations.ai/{clean_prompt}"
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36"
-        }
-        resp = requests.get(url, headers=headers, timeout=8)
-        if resp.status_code == 200 and resp.text and "budget" not in resp.text.lower():
-            return resp.text.strip()
-    except Exception:
-        pass
-
-    # 3. Respuesta de respaldo directa
-    return "¡Hola Mateo! Todo listo por aquí. ¿En qué te puedo ayudar hoy?"
+    return f"⚠️ Error al conectar con Groq. Detalle: {last_error}"
 
 
 @app.route('/', methods=['GET'])
 @app.route('/health', methods=['GET'])
 def health():
-    return jsonify({"status": "online", "system": "JARVIS Chat"})
+    return jsonify({"status": "online", "system": "JARVIS Chat Activo"})
+
 
 @app.route('/chat', methods=['POST'])
 def chat():
@@ -58,12 +64,13 @@ def chat():
         data = request.get_json(force=True) or {}
         message = data.get("message", "")
         if not message:
-            return jsonify({"response": "Por favor escribe un mensaje."})
+            return jsonify({"response": "Por favor escribe un mensaje."}), 400
 
-        reply = get_ai_response(message)
+        reply = get_groq_response(message)
         return jsonify({"response": reply})
-    except Exception:
-        return jsonify({"response": "Hola Mateo, todo funcionando correctamente. Dime."})
+    except Exception as e:
+        return jsonify({"response": f"Error interno del servidor: {str(e)}"}), 500
+
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
